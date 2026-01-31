@@ -1,2 +1,2 @@
-# MULTIX Development Terminal
+# MULTIX Code
 Середовище розробки MULTIX Computing Space
