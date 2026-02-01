@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MULTIX Code</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="manifest" href="manifest.json">
+</head>
+<body>
+
+    <aside id="sidebar">
+        <div class="sidebar-top">
+            <button id="btn-files" class="active" title="Project Files">F</button>
+            <button id="btn-debug" title="Debug & Connect">D</button>
+            <button id="btn-settings" title="Settings">S</button>
+        </div>
+        <div class="sidebar-bottom">
+            <div id="connection-status" class="status-indicator"></div>
+        </div>
+    </aside>
+
+    <main id="workspace">
+        <header id="tabs-bar">
+            <div class="tabs-container" id="tabs-list">
+                </div>
+            <div class="actions-container">
+                <button id="btn-edit-mode" class="action-btn">Edit</button>
+            </div>
+        </header>
+
+        <section id="editor-container">
+            <div class="line-numbers" id="line-numbers">1</div>
+            <textarea id="code-editor" readonly spellcheck="false"></textarea>
+        </section>
+
+        <footer id="console-panel">
+            <div class="console-header">
+                <span>System Log</span>
+                <button id="btn-clear-console">Clear</button>
+            </div>
+            <div id="console-output"></div>
+        </footer>
+    </main>
+
+    <script src="app.js"></script>
+</body>
+</html>
