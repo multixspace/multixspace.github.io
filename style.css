@@ -1,0 +1,93 @@
+/* :root — це глобальна область видимості. 
+  Змінні (Custom Properties) починаються з "--".
+  Це саме те, що буде генерувати Recipe! Ми просто міняємо значення змінних,
+  і весь дизайн миттєво змінюється.
+*/
+:root {
+    --bg-dark: #1e1e1e;       /* Фон редактора */
+    --bg-panel: #252526;      /* Фон панелей */
+    --text-main: #d4d4d4;     /* Основний текст */
+    --accent: #007acc;        /* Колір акценту (синій) */
+    --border: #3e3e42;        /* Колір рамок */
+    
+    /* Розміри. Виносимо їх в змінні, щоб легко міняти масштаб */
+    --sidebar-w: 50px;
+}
+
+/* * — Універсальний селектор (всі елементи).
+  box-sizing: border-box — Найважливіше правило в CSS layout!
+  За замовчуванням ширина елемента = width + padding + border. Це пекло математики.
+  border-box змушує браузер включати відступи і рамки ВНУТРІШНЬО у width.
+*/
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+    height: 100vh; /* 100% від Viewport Height (висоти видимого екрану) */
+    display: flex; /* Вмикаємо Flexbox. Елементи стають в рядок. */
+    background: var(--bg-dark);
+    color: var(--text-main);
+    font-family: 'Segoe UI', sans-serif; /* Шрифт інтерфейсу */
+    overflow: hidden; /* Забороняємо прокрутку всієї сторінки (у нас свій скрол в редакторі) */
+}
+
+/* Сайдбар */
+#sidebar {
+    width: var(--sidebar-w);
+    background: var(--bg-panel);
+    border-right: 1px solid var(--border);
+    /* Flexbox для центрування іконок по вертикалі */
+    display: flex; flex-direction: column; align-items: center; padding-top: 10px;
+}
+
+.nav-btn {
+    width: 36px; height: 36px;
+    background: none; border: none; color: #858585;
+    cursor: pointer; /* Курсор стає "рукою" */
+    margin-bottom: 5px;
+}
+/* :hover — псевдоклас. Спрацьовує, коли миша наводиться на елемент */
+.nav-btn:hover { color: white; }
+.nav-btn.active { border-left: 2px solid var(--accent); color: white; }
+
+/* Основна область */
+#workspace {
+    flex: 1; /* Магічна властивість! Займає ВЕСЬ вільний простір, що залишився після сайдбару. */
+    display: flex; flex-direction: column; /* Елементи стають в стовпчик (вкладки, редактор, консоль) */
+}
+
+/* Редактор */
+#editor-wrapper {
+    flex: 1; /* Редактор розтягується, щоб зайняти все місце між вкладками і консоллю */
+    display: flex; /* Щоб поставити номери рядків і текст поруч */
+    position: relative;
+}
+
+#line-numbers {
+    width: 40px;
+    text-align: right; padding: 10px 5px;
+    color: #858585; background: var(--bg-dark);
+    border-right: 1px solid var(--border);
+    font-family: 'Consolas', monospace; /* Моноширинний шрифт для коду */
+    line-height: 1.5; /* Міжрядковий інтервал */
+}
+
+#code-editor {
+    flex: 1; /* Текстове поле займає все інше місце */
+    background: transparent; color: inherit; border: none;
+    resize: none; /* Забороняємо користувачу тягати куток textarea */
+    padding: 10px; outline: none; /* Прибираємо синє світіння при фокусі */
+    font-family: 'Consolas', monospace;
+    font-size: 14px; line-height: 1.5;
+    white-space: pre; /* Зберігає всі пробіли і відступи як є */
+}
+
+/* Консоль */
+#console-panel {
+    height: 150px; /* Фіксована висота */
+    border-top: 1px solid var(--border);
+    background: var(--bg-panel);
+    font-size: 12px;
+}
+#console-output {
+    padding: 5px; font-family: monospace; color: #aaa;
+}
