@@ -1,0 +1,16 @@
+{
+  "name": "MULTIX Code",
+  "short_name": "Code",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1e1e1e",
+  "theme_color": "#1e1e1e",
+  "icons": [
+    {
+      "src": "icon.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    }
+  ],
+  "orientation": "any"
+}
