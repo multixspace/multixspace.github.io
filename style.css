@@ -1,0 +1,108 @@
+:root {
+    /* SYSTEM LIGHT THEME (Default) */
+    --bg-activity: #f0f0f0;
+    --bg-sidebar: #f8f8f8;
+    --bg-editor: #ffffff;
+    --text-main: #333333;
+    --text-muted: #888888;
+    --border: #e5e5e5;
+    --accent: #007acc;
+    --hover: #e8e8e8;
+    --selection: #b3d7ff;
+}
+
+/* DARK THEME OVERRIDE */
+[data-theme="dark"] {
+    --bg-activity: #1e1e1e; /* Найтемніший */
+    --bg-sidebar: #252526;
+    --bg-editor: #1e1e1e;
+    --text-main: #cccccc;
+    --text-muted: #6e6e6e;
+    --border: #333333;
+    --accent: #4daafc;
+    --hover: #2a2d2e;
+    --selection: #264f78;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+    height: 100vh; display: flex; overflow: hidden;
+    background: var(--bg-editor); color: var(--text-main);
+    font-family: system-ui, -apple-system, monospace; /* Monospace для відчуття терміналу */
+}
+
+/* 1. Activity Bar (Icons) */
+#activity-bar {
+    width: 48px; background: var(--bg-activity);
+    display: flex; flex-direction: column; justify-content: space-between;
+    align-items: center; padding: 10px 0;
+    border-right: 1px solid var(--border);
+}
+
+.activity-btn {
+    width: 36px; height: 36px; border: none; background: transparent;
+    cursor: pointer; border-radius: 5px; margin-bottom: 8px;
+    font-size: 18px; opacity: 0.6; transition: opacity 0.2s;
+    display: flex; align-items: center; justify-content: center;
+}
+.activity-btn:hover { opacity: 1; background: var(--hover); }
+.activity-btn.active { opacity: 1; border-left: 3px solid var(--accent); }
+
+/* 2. Side Panel (List) */
+#side-panel {
+    width: 250px; background: var(--bg-sidebar);
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column;
+}
+.panel-header {
+    height: 35px; display: flex; align-items: center; padding-left: 15px;
+    font-size: 11px; font-weight: bold; letter-spacing: 1px; color: var(--text-muted);
+}
+.list-container { flex: 1; overflow-y: auto; }
+.list-item {
+    padding: 6px 15px; font-size: 13px; cursor: pointer; color: var(--text-main);
+    display: flex; align-items: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.list-item:hover { background: var(--hover); }
+.list-item.active { background: var(--hover); color: var(--accent); }
+.list-item .file-icon { margin-right: 8px; opacity: 0.7; }
+
+/* 3. Main Stage */
+#main-stage { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+
+/* Context Tabs (Hidden by default) */
+#context-tabs {
+    height: 35px; background: var(--bg-activity); border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; padding: 0 10px;
+}
+#context-tabs.hidden { display: none; }
+.tab {
+    padding: 4px 12px; font-size: 12px; background: var(--bg-sidebar);
+    margin-right: 2px; border-radius: 3px 3px 0 0; cursor: pointer;
+    border: 1px solid transparent;
+}
+.tab.active { background: var(--bg-editor); border-color: var(--border); border-bottom-color: var(--bg-editor); }
+
+/* Content */
+#content-container { flex: 1; position: relative; }
+
+/* Editor */
+#code-editor {
+    width: 100%; height: 100%; border: none; resize: none; outline: none;
+    padding: 20px 30px; /* Великі відступи для фокусу */
+    background: var(--bg-editor); color: var(--text-main);
+    font-family: 'Consolas', 'SF Mono', monospace; font-size: 14px; line-height: 1.6;
+}
+
+/* AI Interface (Simple placeholder style) */
+#ai-interface {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    background: var(--bg-editor); padding: 20px;
+    display: flex; flex-direction: column;
+}
+.hidden { display: none !important; }
+
+/* Utils */
+.chat-history { flex: 1; border: 1px dashed var(--border); margin-bottom: 10px; border-radius: 4px; }
+.chat-input { width: 100%; padding: 10px; background: var(--bg-activity); border: 1px solid var(--border); color: var(--text-main); }
