@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MULTIX Code</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="manifest" href="manifest.json">
+</head>
+<body>
+
+    <nav id="activity-bar">
+        <div class="top-actions">
+            <button id="nav-files" class="activity-btn active" title="Explorer">
+                <span class="icon">📂</span>
+            </button>
+            <button id="nav-ai" class="activity-btn" title="AI Architect">
+                <span class="icon">✨</span>
+            </button>
+        </div>
+        <div class="bottom-actions">
+            <button id="nav-theme" class="activity-btn" title="Toggle Theme">
+                <span class="icon">◑</span>
+            </button>
+        </div>
+    </nav>
+
+    <aside id="side-panel">
+        <div class="panel-header">
+            <span id="panel-title">EXPLORER</span>
+        </div>
+        
+        <div id="tree-view" class="list-container">
+            </div>
+
+        <div id="chat-list-view" class="list-container hidden">
+            <div class="list-item">New Chat...</div>
+        </div>
+    </aside>
+
+    <main id="main-stage">
+        
+        <div id="context-tabs" class="hidden">
+            </div>
+
+        <div id="content-container">
+            <textarea id="code-editor" spellcheck="false" placeholder="// Select a file to start coding..."></textarea>
+            
+            <div id="ai-interface" class="hidden">
+                <div class="chat-history"></div>
+                <input type="text" class="chat-input" placeholder="Ask MULTIX AI...">
+            </div>
+        </div>
+
+    </main>
+
+    <script src="app.js"></script>
+</body>
+</html>
