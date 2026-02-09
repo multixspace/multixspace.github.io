@@ -155,7 +155,7 @@ async function connectDevice() {
         //document.getElementById('status-indicator').title = "Milk-V Jupiter Connected";
 
     } catch (err) {
-        logError(`Connection failed: ${err.message}`);
+        log(`Connection failed: ${err.message}`);
     }
 }
 
