@@ -17,7 +17,10 @@
             <button id="nav-ai" class="activity-btn" title="AI Architect">
                 <span class="icon">✨</span>
             </button>
-            <button id="btn-debug" class="activity-btn" title="Debug">
+            <button id="nav-build" class="activity-btn" title="Build Project (Compile MSA)">
+                <span class="icon">▶️</span>
+            </button>
+            <button id="btn-debug" class="activity-btn" title="Debug / Connect Device">
                 <span class="icon">👾</span>
             </button>
         </div>
@@ -43,15 +46,25 @@
 
     <main id="main-stage">
         
-        <div id="context-tabs" class="hidden">
-            </div>
+        <div id="context-tabs" class="hidden"></div>
 
         <div id="content-container">
-            <textarea id="code-editor" spellcheck="false" placeholder="// Select a file to start coding..."></textarea>
+            <div id="editor-wrapper">
+                <div id="line-numbers"></div>
+                <textarea id="code-editor" spellcheck="false" placeholder="// Select a file or start typing MULTIX Assembly..."></textarea>
+            </div>
             
             <div id="ai-interface" class="hidden">
                 <div class="chat-history"></div>
                 <input type="text" class="chat-input" placeholder="Ask MULTIX AI...">
+            </div>
+
+            <div id="console-panel">
+                <div class="console-header">
+                    <span>TERMINAL / OUTPUT</span>
+                    <button id="btn-clear-console" title="Clear">×</button>
+                </div>
+                <div id="console-output"></div>
             </div>
         </div>
 
