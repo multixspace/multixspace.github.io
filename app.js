@@ -1,23 +1,18 @@
 // MULTIX Code - Bootstrap Environment
-// v0.3 - Raw Registers, New Comments, No Extensions
+// v0.4 - Clean Syntax (# NAME, usage without #)
 
 // --- КОНФІГУРАЦІЯ RISC-V RV64I ---
 const RISCV = {
-    // Basic Opcodes
     OP: {
         LUI: 0x37, AUIPC: 0x17, JAL: 0x6F, JALR: 0x67,
         BRANCH: 0x63, LOAD: 0x03, STORE: 0x23,
         IMM: 0x13, OP: 0x33, SYSTEM: 0x73
     },
-    // Raw Registers Only (x0-x31)
     REGS: {}
 };
 
-// Генеруємо мапу x0..x31 + zero
-for (let i = 0; i < 32; i++) {
-    RISCV.REGS[`x${i}`] = i;
-}
-RISCV.REGS['zero'] = 0;
+// Map x0..x31
+for (let i = 0; i < 32; i++) RISCV.REGS[`x${i}`] = i;
 
 // --- BOOTSTRAP COMPILER (MSA) ---
 class Assembler {
@@ -33,28 +28,24 @@ class Assembler {
     compile(source) {
         this.reset();
         
-        // 1. Попередня обробка: Видалення блокових коментарів ;- ... -;
-        // Використовуємо regex з прапором 's' (dotAll), щоб захопити переноси рядків
+        // Pre-process: Clean block comments
         let cleanSource = source.replace(/;-(.|[\r\n])*?-;/g, '');
 
-        // 2. Розбиття на рядки та чистка рядкових коментарів ;
+        // Split and clean line comments
         this.lines = cleanSource.split('\n')
             .map(l => {
-                // Відрізаємо коментар починаючи з ;
                 const commentIdx = l.indexOf(';');
                 if (commentIdx !== -1) return l.substring(0, commentIdx).trim();
                 return l.trim();
             })
-            .filter(l => l); // Прибираємо пусті рядки
+            .filter(l => l);
         
         log("Build started...", "sys");
 
         try {
-            // Pass 1: Symbols
             this.pass1();
-            log(`Pass 1: Symbols resolved (${Object.keys(this.labels).length} labels)`, "sys");
+            log(`Pass 1: Symbols resolved (${Object.keys(this.labels).length} labels, ${Object.keys(this.constants).length} consts)`, "sys");
 
-            // Pass 2: Generation
             this.pass2();
             log(`Pass 2: Code generated. Size: ${this.code.length} bytes.`, "success");
             
@@ -73,40 +64,41 @@ class Assembler {
         this.origin = 0;
     }
 
-    // --- PASS 1 ---
+    // --- PASS 1: Symbol Discovery ---
     pass1() {
         let pc = 0; 
         
         for (let line of this.lines) {
-            // Constants: #NAME = VALUE
+            // 1. Constants: # NAME = VALUE
             if (line.startsWith('#')) {
-                const parts = line.split('=');
-                const name = parts[0].trim().substring(1);
-                const val = this.parseValue(parts[1].trim());
+                // Remove '#' then split by '='
+                const content = line.substring(1); 
+                const parts = content.split('=');
+                
+                if (parts.length !== 2) throw new Error(`Invalid constant decl: ${line}`);
+
+                const name = parts[0].trim();
+                const valStr = parts[1].trim();
+                const val = this.parseValue(valStr); // Recursive resolution possible? For now simple.
+                
                 this.constants[name] = val;
                 continue;
             }
 
-            // Origin: @ ADDR
+            // 2. Origin: @ ADDR (ADDR can be a constant name now!)
             if (line.startsWith('@')) {
-                const val = this.parseValue(line.substring(1).trim());
+                const valStr = line.substring(1).trim();
+                const val = this.parseValue(valStr); // Resolve name -> value
                 this.origin = val;
                 pc = val;
                 continue;
             }
 
-            // Labels
-            // 1. Точка входу модуля (просто :)
+            // 3. Labels
             if (line === ':') {
-                // Використовуємо спеціальне ім'я для дефолтної мітки, наприклад "__entry__"
-                // Або якщо це імпорт модуля, зовнішній код буде посилатися на ім'я файлу.
-                // Поки що зберігаємо як поточний pc.
-                // TODO: Логіка прив'язки до імені файлу буде пізніше.
                 this.labels[':'] = pc; 
                 continue;
             }
-
-            // 2. Іменовані мітки (Label:)
             if (line.endsWith(':')) {
                 const label = line.slice(0, -1);
                 this.labels[label] = pc;
@@ -118,31 +110,21 @@ class Assembler {
         }
     }
 
-    // --- PASS 2 ---
+    // --- PASS 2: Code Generation ---
     pass2() {
         let pc = this.origin;
         
         for (let line of this.lines) {
-            // Skip declarations
             if (line.startsWith('#') || line.endsWith(':') || line === ':' || line.startsWith('@')) continue;
 
             // 1. Control Flow: = (Return)
             if (line === '=') {
-                // JALR x0, 0(x1) -> Припускаємо, що x1 це RA (Return Address), 
-                // АЛЕ ми домовились не фіксувати ролі. 
-                // Для 'return' нам все одно треба знати, куди повертатися.
-                // Поки що хардкодимо x1 як лінк-регістр для викликів.
-                this.emitI(0x67, 0, 0, 1, 0); 
+                this.emitI(0x67, 0, 0, 1, 0); // JALR x0, 0(x1)
                 pc += 4; continue;
             }
 
-            // 2. Control Flow: ? (IF stub)
-            if (line.startsWith('?')) {
-                this.emit(0x13, 0, 0, 0, 0); // NOP
-                pc += 4; continue;
-            }
-            // Block separators
-            if (line.startsWith(':')) { // :? or : (else)
+            // 2. Control Flow: Stub ? and :
+            if (line.startsWith('?') || line.startsWith(':')) {
                 this.emit(0x13, 0, 0, 0, 0); // NOP
                 pc += 4; continue;
             }
@@ -157,7 +139,6 @@ class Assembler {
                 if (destStr.startsWith('[') && destStr.endsWith(']')) {
                     const rs1 = this.parseReg(destStr.slice(1, -1));
                     const rs2 = this.parseReg(srcStr);
-                    // SD rs2, 0(rs1)
                     this.emitS(0x23, 3, rs1, rs2, 0);
                     pc += 4; continue;
                 }
@@ -166,9 +147,17 @@ class Assembler {
 
                 // Load: reg = [reg]
                 if (srcStr.startsWith('[') && srcStr.endsWith(']')) {
-                    const rs1 = this.parseReg(srcStr.slice(1, -1));
-                    // LD rd, 0(rs1)
-                    this.emitI(0x03, 3, rd, rs1, 0);
+                    const content = srcStr.slice(1, -1);
+                    // Check for [reg + offset]
+                    if (content.includes('+')) {
+                         const mParts = content.split('+');
+                         const rs1 = this.parseReg(mParts[0].trim());
+                         const off = this.parseValue(mParts[1].trim());
+                         this.emitI(0x03, 3, rd, rs1, off);
+                    } else {
+                         const rs1 = this.parseReg(content);
+                         this.emitI(0x03, 3, rd, rs1, 0);
+                    }
                     pc += 4; continue;
                 }
 
@@ -178,11 +167,9 @@ class Assembler {
                     const rs1 = this.parseReg(opParts[0]);
                     
                     if (this.isReg(opParts[1])) {
-                        // ADD
                         const rs2 = this.parseReg(opParts[1]);
                         this.emitR(0x33, 0, 0, rd, rs1, rs2);
                     } else {
-                        // ADDI
                         const imm = this.parseValue(opParts[1]);
                         this.emitI(0x13, 0, rd, rs1, imm);
                     }
@@ -191,24 +178,20 @@ class Assembler {
 
                 // Move/Immediate
                 if (this.isReg(srcStr)) {
-                    // MV (ADDI rd, rs1, 0)
                     const rs1 = this.parseReg(srcStr);
                     this.emitI(0x13, 0, rd, rs1, 0);
                 } else {
-                    // LI (ADDI rd, zero, imm)
                     const imm = this.parseValue(srcStr);
                     this.emitI(0x13, 0, rd, 0, imm);
                 }
                 pc += 4; continue;
             }
             
-            // 4. Function Call (Jump)
-            // Якщо це просто ім'я мітки/модуля
+            // 4. Function Call (Label)
             let targetLabel = line;
             if (this.labels[targetLabel] !== undefined) {
                 const target = this.labels[targetLabel];
                 const offset = target - pc;
-                // JAL x1, offset (Використовуємо x1 як лінк-регістр за замовчуванням для викликів)
                 this.emitJ(0x6F, 1, offset);
                 pc += 4; continue;
             }
@@ -221,12 +204,23 @@ class Assembler {
         throw new Error(`Unknown register: ${str}`);
     }
     isReg(str) { return RISCV.REGS[str] !== undefined; }
+    
     parseValue(str) {
+        // 1. Check Constants
         if (this.constants[str] !== undefined) return this.constants[str];
+        // 2. Check Labels
         if (this.labels[str] !== undefined) return this.labels[str];
+        // 3. Hex
         if (str.startsWith('0x')) return parseInt(str, 16);
+        // 4. Char
         if (str.startsWith("'")) return str.charCodeAt(1);
-        return parseInt(str);
+        // 5. Decimal
+        const val = parseInt(str);
+        if (!isNaN(val)) return val;
+
+        // If used in Pass 1 for @ CONST, label might not exist yet, 
+        // but constant MUST exist.
+        return 0; // Return 0 for unresolved labels in Pass 1 (resolved in Pass 2)
     }
 
     // --- EMITTERS ---
@@ -236,21 +230,17 @@ class Assembler {
         this.code.push((word >> 16) & 0xFF);
         this.code.push((word >> 24) & 0xFF);
     }
-    // R-Type
     emitR(opcode, funct3, funct7, rd, rs1, rs2) {
         this.pushWord((funct7 << 25) | (rs2 << 20) | (rs1 << 15) | (funct3 << 12) | (rd << 7) | opcode);
     }
-    // I-Type
     emitI(opcode, funct3, rd, rs1, imm) {
         this.pushWord(((imm & 0xFFF) << 20) | (rs1 << 15) | (funct3 << 12) | (rd << 7) | opcode);
     }
-    // S-Type
     emitS(opcode, funct3, rs1, rs2, imm) {
         const imm11_5 = (imm >> 5) & 0x7F;
         const imm4_0 = imm & 0x1F;
         this.pushWord((imm11_5 << 25) | (rs2 << 20) | (rs1 << 15) | (funct3 << 12) | (imm4_0 << 7) | opcode);
     }
-    // J-Type
     emitJ(opcode, rd, imm) {
         const i20 = (imm >> 20) & 1;
         const i10_1 = (imm >> 1) & 0x3FF;
@@ -266,8 +256,7 @@ const State = {
     theme: 'light',
     activeView: 'files',
     files: {
-        'boot': '; MULTIX System Assembly\n; Bootloader Entry\n\n#RAM = 0x80000000\n#UART = 0x10000000\n\n@ #RAM\n\n:\n    ; Init Stack (using x2 manualy)\n    x2 = #RAM\n    \n    ; Test UART\n    x5 = #UART\n    x6 = \'H\'\n    [x5] = x6\n    x6 = \'i\'\n    [x5] = x6\n    \n    kernel\n    =\n',
-        'kernel': '; MULTIX System Assembly\n; Kernel Module\n\n:\n    ;\n    ='
+        'boot': '; MULTIX System Assembly\n; Clean Syntax Demo\n\n# RAM = 0x80000000\n# UART = 0x10000000\n\n@ RAM\n\n:\n    ; No prefix needed for constants!\n    x2 = RAM + 0x1000\n    \n    x5 = UART\n    x6 = \'!\'\n    [x5] = x6\n    \n    =\n'
     },
     currentFile: 'boot'
 };
