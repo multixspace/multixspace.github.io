@@ -1,5 +1,5 @@
 // MULTIX Code - Bootstrap Environment
-// v0.2 - With MSA Compiler and Console
+// v0.3 - Raw Registers, New Comments, No Extensions
 
 // --- КОНФІГУРАЦІЯ RISC-V RV64I ---
 const RISCV = {
@@ -9,16 +9,15 @@ const RISCV = {
         BRANCH: 0x63, LOAD: 0x03, STORE: 0x23,
         IMM: 0x13, OP: 0x33, SYSTEM: 0x73
     },
-    // Register Map
-    REGS: {
-        'x0': 0, 'zero': 0, 'ra': 1, 'sp': 2, 'gp': 3, 'tp': 4,
-        't0': 5, 't1': 6, 't2': 7, 's0': 8, 'fp': 8, 's1': 9,
-        'a0': 10, 'a1': 11, 'a2': 12, 'a3': 13, 'a4': 14, 'a5': 15,
-        'a6': 16, 'a7': 17, 's2': 18, 's3': 19, 's4': 20, 's5': 21,
-        's6': 22, 's7': 23, 's8': 24, 's9': 25, 's10': 26, 's11': 27,
-        't3': 28, 't4': 29, 't5': 30, 't6': 31
-    }
+    // Raw Registers Only (x0-x31)
+    REGS: {}
 };
+
+// Генеруємо мапу x0..x31 + zero
+for (let i = 0; i < 32; i++) {
+    RISCV.REGS[`x${i}`] = i;
+}
+RISCV.REGS['zero'] = 0;
 
 // --- BOOTSTRAP COMPILER (MSA) ---
 class Assembler {
@@ -33,10 +32,20 @@ class Assembler {
 
     compile(source) {
         this.reset();
-        // Груба очистка
-        this.lines = source.split('\n')
-            .map(l => l.trim())
-            .filter(l => l && !l.startsWith('//'));
+        
+        // 1. Попередня обробка: Видалення блокових коментарів ;- ... -;
+        // Використовуємо regex з прапором 's' (dotAll), щоб захопити переноси рядків
+        let cleanSource = source.replace(/;-(.|[\r\n])*?-;/g, '');
+
+        // 2. Розбиття на рядки та чистка рядкових коментарів ;
+        this.lines = cleanSource.split('\n')
+            .map(l => {
+                // Відрізаємо коментар починаючи з ;
+                const commentIdx = l.indexOf(';');
+                if (commentIdx !== -1) return l.substring(0, commentIdx).trim();
+                return l.trim();
+            })
+            .filter(l => l); // Прибираємо пусті рядки
         
         log("Build started...", "sys");
 
@@ -66,12 +75,9 @@ class Assembler {
 
     // --- PASS 1 ---
     pass1() {
-        let pc = 0; // Relative PC
+        let pc = 0; 
         
         for (let line of this.lines) {
-            if (line.includes('//')) line = line.split('//')[0].trim();
-            if (!line) continue;
-
             // Constants: #NAME = VALUE
             if (line.startsWith('#')) {
                 const parts = line.split('=');
@@ -89,15 +95,25 @@ class Assembler {
                 continue;
             }
 
-            // Labels: Label: or :
-            if (line.endsWith(':')) {
-                const label = line.slice(0, -1);
-                if (label !== '') this.labels[label] = pc;
+            // Labels
+            // 1. Точка входу модуля (просто :)
+            if (line === ':') {
+                // Використовуємо спеціальне ім'я для дефолтної мітки, наприклад "__entry__"
+                // Або якщо це імпорт модуля, зовнішній код буде посилатися на ім'я файлу.
+                // Поки що зберігаємо як поточний pc.
+                // TODO: Логіка прив'язки до імені файлу буде пізніше.
+                this.labels[':'] = pc; 
                 continue;
             }
 
-            // Instructions sizing (Simplified: 4 bytes each)
-            // Loops/Conditions (?, :, =) also take space
+            // 2. Іменовані мітки (Label:)
+            if (line.endsWith(':')) {
+                const label = line.slice(0, -1);
+                this.labels[label] = pc;
+                continue;
+            }
+
+            // Instructions sizing
             pc += 4; 
         }
     }
@@ -107,26 +123,27 @@ class Assembler {
         let pc = this.origin;
         
         for (let line of this.lines) {
-            if (line.includes('//')) line = line.split('//')[0].trim();
-            if (!line) continue;
-            
             // Skip declarations
-            if (line.startsWith('#') || line.endsWith(':') || line.startsWith('@')) continue;
+            if (line.startsWith('#') || line.endsWith(':') || line === ':' || line.startsWith('@')) continue;
 
             // 1. Control Flow: = (Return)
             if (line === '=') {
-                // JALR x0, 0(ra) -> RET
+                // JALR x0, 0(x1) -> Припускаємо, що x1 це RA (Return Address), 
+                // АЛЕ ми домовились не фіксувати ролі. 
+                // Для 'return' нам все одно треба знати, куди повертатися.
+                // Поки що хардкодимо x1 як лінк-регістр для викликів.
                 this.emitI(0x67, 0, 0, 1, 0); 
                 pc += 4; continue;
             }
 
             // 2. Control Flow: ? (IF stub)
             if (line.startsWith('?')) {
-                this.emit(0x13, 0, 0, 0, 0); // NOP for now
+                this.emit(0x13, 0, 0, 0, 0); // NOP
                 pc += 4; continue;
             }
-            if (line.startsWith(':')) {
-                this.emit(0x13, 0, 0, 0, 0); // NOP for now
+            // Block separators
+            if (line.startsWith(':')) { // :? or : (else)
+                this.emit(0x13, 0, 0, 0, 0); // NOP
                 pc += 4; continue;
             }
             
@@ -178,18 +195,20 @@ class Assembler {
                     const rs1 = this.parseReg(srcStr);
                     this.emitI(0x13, 0, rd, rs1, 0);
                 } else {
-                    // LI (ADDI rd, zero, imm) - Valid for small numbers
+                    // LI (ADDI rd, zero, imm)
                     const imm = this.parseValue(srcStr);
                     this.emitI(0x13, 0, rd, 0, imm);
                 }
                 pc += 4; continue;
             }
             
-            // 4. Function Call: Module.Func (Jump)
-            if (this.labels[line] !== undefined) {
-                const target = this.labels[line];
+            // 4. Function Call (Jump)
+            // Якщо це просто ім'я мітки/модуля
+            let targetLabel = line;
+            if (this.labels[targetLabel] !== undefined) {
+                const target = this.labels[targetLabel];
                 const offset = target - pc;
-                // JAL ra, offset
+                // JAL x1, offset (Використовуємо x1 як лінк-регістр за замовчуванням для викликів)
                 this.emitJ(0x6F, 1, offset);
                 pc += 4; continue;
             }
@@ -217,7 +236,6 @@ class Assembler {
         this.code.push((word >> 16) & 0xFF);
         this.code.push((word >> 24) & 0xFF);
     }
-    
     // R-Type
     emitR(opcode, funct3, funct7, rd, rs1, rs2) {
         this.pushWord((funct7 << 25) | (rs2 << 20) | (rs1 << 15) | (funct3 << 12) | (rd << 7) | opcode);
@@ -240,7 +258,6 @@ class Assembler {
         const i19_12 = (imm >> 12) & 0xFF;
         this.pushWord((i20 << 31) | (i10_1 << 21) | (i11 << 20) | (i19_12 << 12) | (rd << 7) | opcode);
     }
-    // Fallback
     emit(w) { this.pushWord(w); }
 }
 
@@ -249,10 +266,10 @@ const State = {
     theme: 'light',
     activeView: 'files',
     files: {
-        'boot.msa': '// MULTIX System Assembly\n// Boot Test\n\n#UART = 0x10000000\n\n_start:\n    t0 = #UART\n    t1 = \'O\'\n    [t0] = t1\n    t1 = \'K\'\n    [t0] = t1\n    =\n',
-        'kernel': '// Kernel Placeholder\n_main:\n    ='
+        'boot': '; MULTIX System Assembly\n; Bootloader Entry\n\n#RAM = 0x80000000\n#UART = 0x10000000\n\n@ #RAM\n\n:\n    ; Init Stack (using x2 manualy)\n    x2 = #RAM\n    \n    ; Test UART\n    x5 = #UART\n    x6 = \'H\'\n    [x5] = x6\n    x6 = \'i\'\n    [x5] = x6\n    \n    kernel\n    =\n',
+        'kernel': '; MULTIX System Assembly\n; Kernel Module\n\n:\n    ;\n    ='
     },
-    currentFile: 'boot.msa'
+    currentFile: 'boot'
 };
 
 const UI = {
@@ -279,7 +296,6 @@ const App = {
             UI.lines.scrollTop = UI.editor.scrollTop;
         });
 
-        // Event Listeners
         UI.navFiles.addEventListener('click', () => App.switchSidebar('files'));
         UI.navAI.addEventListener('click', () => App.switchSidebar('ai'));
         UI.navTheme.addEventListener('click', App.toggleTheme);
@@ -293,7 +309,6 @@ const App = {
         State.currentFile = name;
         UI.editor.value = State.files[name];
         App.updateLines();
-        // Highlight active
         document.querySelectorAll('.list-item').forEach(el => {
             el.classList.remove('active');
             if (el.dataset.name === name) el.classList.add('active');
@@ -315,7 +330,6 @@ const App = {
     switchSidebar: function(view) {
         const aiView = document.getElementById('ai-interface');
         const chatList = document.getElementById('chat-list-view');
-        
         if (view === 'files') {
             UI.navFiles.classList.add('active');
             UI.navAI.classList.remove('active');
@@ -347,9 +361,7 @@ const App = {
     },
 
     build: function() {
-        // Save current file content
         State.files[State.currentFile] = UI.editor.value;
-        
         const bin = App.compiler.compile(UI.editor.value);
         if (bin) {
             let hex = "";
