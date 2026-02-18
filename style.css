@@ -3,25 +3,31 @@
     --bg-activity: #f0f0f0;
     --bg-sidebar: #f8f8f8;
     --bg-editor: #ffffff;
+    --bg-console: #1e1e1e;
     --text-main: #333333;
     --text-muted: #888888;
+    --text-console: #cccccc;
     --border: #e5e5e5;
     --accent: #007acc;
     --hover: #e8e8e8;
     --selection: #b3d7ff;
+    --line-num-bg: #f5f5f5;
 }
 
 /* DARK THEME OVERRIDE */
 [data-theme="dark"] {
-    --bg-activity: #1e1e1e; /* Найтемніший */
+    --bg-activity: #1e1e1e;
     --bg-sidebar: #252526;
     --bg-editor: #1e1e1e;
+    --bg-console: #111111;
     --text-main: #cccccc;
     --text-muted: #6e6e6e;
+    --text-console: #e0e0e0;
     --border: #333333;
     --accent: #4daafc;
     --hover: #2a2d2e;
     --selection: #264f78;
+    --line-num-bg: #1e1e1e;
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -29,31 +35,32 @@
 body {
     height: 100vh; display: flex; overflow: hidden;
     background: var(--bg-editor); color: var(--text-main);
-    font-family: system-ui, -apple-system, monospace; /* Monospace для відчуття терміналу */
+    font-family: system-ui, -apple-system, monospace;
 }
 
-/* 1. Activity Bar (Icons) */
+/* 1. Activity Bar */
 #activity-bar {
     width: 48px; background: var(--bg-activity);
     display: flex; flex-direction: column; justify-content: space-between;
     align-items: center; padding: 10px 0;
     border-right: 1px solid var(--border);
+    flex-shrink: 0;
 }
-
 .activity-btn {
     width: 36px; height: 36px; border: none; background: transparent;
     cursor: pointer; border-radius: 5px; margin-bottom: 8px;
     font-size: 18px; opacity: 0.6; transition: opacity 0.2s;
-    display: flex; align-items: center; justify-content: center;
+    display: flex; align-items: center; justify-content: center; color: var(--text-main);
 }
 .activity-btn:hover { opacity: 1; background: var(--hover); }
 .activity-btn.active { opacity: 1; border-left: 3px solid var(--accent); }
 
-/* 2. Side Panel (List) */
+/* 2. Side Panel */
 #side-panel {
     width: 250px; background: var(--bg-sidebar);
     border-right: 1px solid var(--border);
     display: flex; flex-direction: column;
+    flex-shrink: 0;
 }
 .panel-header {
     height: 35px; display: flex; align-items: center; padding-left: 15px;
@@ -71,7 +78,6 @@ body {
 /* 3. Main Stage */
 #main-stage { flex: 1; display: flex; flex-direction: column; min-width: 0; }
 
-/* Context Tabs (Hidden by default) */
 #context-tabs {
     height: 35px; background: var(--bg-activity); border-bottom: 1px solid var(--border);
     display: flex; align-items: center; padding: 0 10px;
@@ -84,25 +90,72 @@ body {
 }
 .tab.active { background: var(--bg-editor); border-color: var(--border); border-bottom-color: var(--bg-editor); }
 
-/* Content */
-#content-container { flex: 1; position: relative; }
+/* Content Container - Split View */
+#content-container { 
+    flex: 1; position: relative; 
+    display: flex; flex-direction: column; 
+    height: 100%;
+}
 
-/* Editor */
+/* Editor Wrapper */
+#editor-wrapper {
+    flex: 1; display: flex; position: relative;
+    min-height: 0; /* Fix for flex scroll */
+}
+
+#line-numbers {
+    width: 40px; background: var(--line-num-bg);
+    border-right: 1px solid var(--border);
+    color: var(--text-muted);
+    font-family: 'Consolas', 'SF Mono', monospace;
+    font-size: 14px; line-height: 1.6;
+    text-align: right; padding: 20px 5px;
+    user-select: none; overflow: hidden;
+}
+
 #code-editor {
-    width: 100%; height: 100%; border: none; resize: none; outline: none;
-    padding: 20px 30px; /* Великі відступи для фокусу */
+    flex: 1; height: 100%; border: none; resize: none; outline: none;
+    padding: 20px 10px;
     background: var(--bg-editor); color: var(--text-main);
     font-family: 'Consolas', 'SF Mono', monospace; font-size: 14px; line-height: 1.6;
 }
 
-/* AI Interface (Simple placeholder style) */
+/* Console Panel */
+#console-panel {
+    height: 200px; 
+    background: var(--bg-console); 
+    border-top: 1px solid var(--border);
+    display: flex; flex-direction: column;
+}
+
+.console-header {
+    height: 25px; background: var(--bg-activity); border-bottom: 1px solid #333;
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 0 10px; font-size: 11px; color: var(--text-muted); font-weight: bold;
+}
+#btn-clear-console {
+    background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 14px;
+}
+#btn-clear-console:hover { color: var(--text-main); }
+
+#console-output {
+    flex: 1; overflow-y: auto; padding: 10px;
+    font-family: 'Consolas', 'SF Mono', monospace; font-size: 13px;
+    color: var(--text-console);
+    white-space: pre-wrap;
+}
+
+.log-sys { color: #4daafc; }
+.log-err { color: #f48771; }
+.log-success { color: #89d185; }
+.log-time { opacity: 0.5; margin-right: 8px; font-size: 11px; }
+
+/* AI Interface */
 #ai-interface {
     position: absolute; top: 0; left: 0; width: 100%; height: 100%;
     background: var(--bg-editor); padding: 20px;
-    display: flex; flex-direction: column;
+    display: flex; flex-direction: column; z-index: 10;
 }
 .hidden { display: none !important; }
-
-/* Utils */
 .chat-history { flex: 1; border: 1px dashed var(--border); margin-bottom: 10px; border-radius: 4px; }
 .chat-input { width: 100%; padding: 10px; background: var(--bg-activity); border: 1px solid var(--border); color: var(--text-main); }
