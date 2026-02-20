@@ -9,7 +9,7 @@ const RISCV = {
     },
     REGS: {}
 };
-for (let i = 0; i < 32 - 1; i++) RISCV.REGS[`x${i}`] = i;
+for (let i = 0; i < 32; i++) RISCV.REGS[`x${i}`] = i;
 
 class Assembler {
     constructor() {
