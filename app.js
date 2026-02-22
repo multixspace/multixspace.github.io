@@ -1,5 +1,5 @@
 // MULTIX Code - Bootstrap Environment
-// v0.7 - Unified Syntax (%, @, =, _, ., ..)
+// v0.8 - Data Stack Arguments (x1, x2) @, (x1) =, = (x1)
 
 const RISCV = {
     OP: { LUI: 0x37, AUIPC: 0x17, JAL: 0x6F, JALR: 0x67, BRANCH: 0x63, LOAD: 0x03, STORE: 0x23, IMM: 0x13, OP: 0x33, SYSTEM: 0x73 },
@@ -13,28 +13,23 @@ class Assembler {
     compile(source) {
         this.reset();
         let cleanSource = source.replace(/;-(.|[\r\n])*?-;/g, '');
-        
         let rawLines = cleanSource.split('\n');
         for (let l of rawLines) {
             const commentIdx = l.indexOf(';');
             let text = commentIdx !== -1 ? l.substring(0, commentIdx) : l;
             if (text.trim() === '') continue;
-            const indent = text.search(/\S|$/);
-            this.lines.push({ text: text.trim(), indent: indent });
+            this.lines.push({ text: text.trim(), indent: text.search(/\S|$/) });
         }
         
-        log("Build started (v0.7)...", "sys");
+        log("Build started (v0.8)...", "sys");
         try {
-            this.pass1();
-            this.pass2();
+            this.pass1(); this.pass2();
             log(`Build Success. Size: ${this.code.length} bytes.`, "success");
-            
             log("--- INTERMEDIATE RISC-V ASM ---", "sys");
             for (let t of this.asmTrace) log(t);
             return new Uint8Array(this.code);
         } catch (e) {
-            log(`Build Error: ${e.message}`, "err");
-            return null;
+            log(`Build Error: ${e.message}`, "err"); return null;
         }
     }
 
@@ -45,62 +40,74 @@ class Assembler {
 
     // --- PASS 1 ---
     pass1() {
-        let pc = 0; 
-        let blockStack = [];
+        let pc = 0; let blockStack = [];
 
         for (let i = 0; i < this.lines.length; i++) {
-            let line = this.lines[i].text;
-            let indent = this.lines[i].indent;
+            let line = this.lines[i].text; let indent = this.lines[i].indent;
 
             while (blockStack.length > 0 && indent <= blockStack[blockStack.length - 1].indent) {
-                let b = blockStack.pop();
-                if (b.type === 'while') pc += 4; 
+                let b = blockStack.pop(); if (b.type === 'while') pc += 4; 
             }
 
-            // Constants: % NAME VALUE
             if (line.startsWith('%')) {
                 const parts = line.substring(1).trim().split(/\s+/);
-                this.constants[parts[0]] = this.parseValue(parts[1]);
-                continue;
+                this.constants[parts[0]] = this.parseValue(parts[1]); continue;
             }
-
-            // Entry Point & Origin: : ADDR
             if (line.startsWith(':')) {
                 const valStr = line.substring(1).trim();
-                if (valStr) {
-                    const val = this.parseValue(valStr);
-                    this.origin = val; pc = val;
-                }
-                this.labels[':'] = pc; 
-                continue;
+                if (valStr) { const val = this.parseValue(valStr); this.origin = val; pc = val; }
+                this.labels[':'] = pc; continue;
             }
-
             if (line.endsWith(':')) { this.labels[line.slice(0, -1)] = pc; continue; }
 
-            // Shadow Stack Call (@)
-            if (line.endsWith('@')) {
-                pc += line === '@' ? 16 : 20;
+            // 1. Data Stack: Call with Args "label (x1, x2) @"
+            const callMatch = line.match(/^(?:([a-zA-Z_]\w*)\s*)?\(([\w\s,]+)\)\s*@$/);
+            if (callMatch) {
+                const regsCount = callMatch[2].split(',').length;
+                pc += (regsCount * 4) + 4 + (callMatch[1] ? 20 : 16); continue;
+            }
+
+            // 2. Data Stack: Return with Args "= (x1, x2)"
+            const retPushMatch = line.match(/^=\s*\(([\w\s,]+)\)$/);
+            if (retPushMatch) {
+                const regsCount = retPushMatch[1].split(',').length;
+                pc += (regsCount * 4) + 4 + 12; continue;
+            }
+
+            // 3. Data Stack: Pop Args "(x1, x2) ="
+            const popMatch = line.match(/^\(([\w\s,]+)\)\s*=$/);
+            if (popMatch) {
+                const regsCount = popMatch[1].split(',').length;
+                pc += (regsCount * 4) + 4; continue;
+            }
+
+            // Simple Call (@)
+            if (line.endsWith('@')) { pc += line === '@' ? 16 : 20; continue; }
+            
+            // Simple Return (=)
+            if (line === '=') { pc += 12; continue; }
+            if (line === '_') { pc += 4; continue; }
+            if (line === '.' || line === '..') { pc += 4; continue; }
+
+            // Range Loop: & x1 = x2:x3,4
+            const rangeMatch = line.match(/^&\s*(x\d+)\s*=\s*(x\d+)\s*:\s*(x\d+)\s*,\s*(\d+)$/);
+            if (rangeMatch) {
+                this.blockCounter++;
+                let startLabel = `_R_START_${this.blockCounter}`, endLabel = `_R_END_${this.blockCounter}`;
+                this.labels[startLabel] = pc + 4; // Start after MV
+                blockStack.push({ type: 'range', indent: indent, start: startLabel, end: endLabel, reg: rangeMatch[1], step: parseInt(rangeMatch[4]) });
+                pc += 8; // MV + BGE
                 continue;
             }
-            // Shadow Stack Return (=)
-            if (line === '=') { pc += 12; continue; }
-            
-            // Halt (_)
-            if (line === '_') { pc += 4; continue; }
-
-            // Loop Controls (. and ..)
-            if (line === '.' || line === '..') { pc += 4; continue; }
 
             // Blocks (& While, ? If)
             if (line.startsWith('&') || line.startsWith('?')) {
                 this.blockCounter++;
                 let bType = line.startsWith('&') ? 'while' : 'if';
-                let startLabel = `_B_START_${this.blockCounter}`;
-                let endLabel = `_B_END_${this.blockCounter}`;
+                let startLabel = `_B_START_${this.blockCounter}`, endLabel = `_B_END_${this.blockCounter}`;
                 if (bType === 'while') this.labels[startLabel] = pc;
                 blockStack.push({ type: bType, indent: indent, start: startLabel, end: endLabel });
-                pc += 4; 
-                continue;
+                pc += 4; continue;
             }
 
             if (line.includes('=')) { pc += 4; continue; }
@@ -110,26 +117,28 @@ class Assembler {
         while (blockStack.length > 0) {
             let b = blockStack.pop();
             if (b.type === 'while') pc += 4;
+            else if (b.type === 'range') pc += 8; // ADDI + JAL
             this.labels[b.end] = pc;
         }
     }
 
     // --- PASS 2 ---
     pass2() {
-        let pc = this.origin;
-        let blockStack = [];
-        let bCounter = 0;
+        let pc = this.origin; let blockStack = []; let bCounter = 0;
 
         for (let i = 0; i < this.lines.length; i++) {
-            let line = this.lines[i].text;
-            let indent = this.lines[i].indent;
+            let line = this.lines[i].text; let indent = this.lines[i].indent;
 
             while (blockStack.length > 0 && indent <= blockStack[blockStack.length - 1].indent) {
                 let b = blockStack.pop();
                 if (b.type === 'while') {
                     let offset = this.labels[b.start] - pc;
-                    this.emitJ(0x6F, 0, offset, `JAL x0, ${offset} (Loop Back)`);
-                    pc += 4;
+                    this.emitJ(0x6F, 0, offset, `JAL x0, ${offset} (Loop Back)`); pc += 4;
+                } else if (b.type === 'range') {
+                    let reg = this.parseReg(b.reg);
+                    this.emitI(0x13, 0, reg, reg, b.step, `ADDI x${reg}, x${reg}, ${b.step}`); pc += 4;
+                    let offset = this.labels[b.start] - pc;
+                    this.emitJ(0x6F, 0, offset, `JAL x0, ${offset} (Range Next)`); pc += 4;
                 }
                 this.emitTrace(`; --- End of Block ${b.end} ---`);
             }
@@ -141,7 +150,59 @@ class Assembler {
 
             this.emitTrace(`\n; ${line}`);
 
-            // Call (@)
+            // 1. Data Stack Call: label (x1, x2) @
+            const callM = line.match(/^(?:([a-zA-Z_]\w*)\s*)?\(([\w\s,]+)\)\s*@$/);
+            if (callM) {
+                let target = callM[1] ? callM[1].trim() : '';
+                let regs = callM[2].split(',').map(s => this.parseReg(s.trim()));
+                // Push args to Data Stack (x2)
+                for(let j=0; j<regs.length; j++) {
+                    this.emitS(0x23, 3, 2, regs[j], j*8, `SD x${regs[j]}, ${j*8}(x2)  ; Push arg`);
+                }
+                this.emitI(0x13, 0, 2, 2, regs.length*8, `ADDI x2, x2, ${regs.length*8}`);
+                
+                // Shadow Stack Call
+                this.emitU(0x17, 1, 0, `AUIPC x1, 0`); 
+                let pushOffset = target ? 20 : 16;
+                this.emitI(0x13, 0, 1, 1, pushOffset, `ADDI x1, x1, ${pushOffset}`); 
+                this.emitS(0x23, 3, 31, 1, 0, `SD x1, 0(x31)`); 
+                this.emitI(0x13, 0, 31, 31, 8, `ADDI x31, x31, 8`); 
+                pc += (regs.length*4) + 4 + 16;
+                if (target) {
+                    let offset = this.labels[target] - pc;
+                    this.emitJ(0x6F, 0, offset, `JAL x0, ${target} (${offset})`); pc += 4;
+                }
+                continue;
+            }
+
+            // 2. Data Stack Return: = (x1, x2)
+            const retPushM = line.match(/^=\s*\(([\w\s,]+)\)$/);
+            if (retPushM) {
+                let regs = retPushM[1].split(',').map(s => this.parseReg(s.trim()));
+                for(let j=0; j<regs.length; j++) {
+                    this.emitS(0x23, 3, 2, regs[j], j*8, `SD x${regs[j]}, ${j*8}(x2)  ; Push ret`);
+                }
+                this.emitI(0x13, 0, 2, 2, regs.length*8, `ADDI x2, x2, ${regs.length*8}`);
+                
+                // Shadow Return
+                this.emitI(0x13, 0, 31, 31, -8, `ADDI x31, x31, -8`);
+                this.emitI(0x03, 3, 1, 31, 0, `LD x1, 0(x31)`);
+                this.emitI(0x67, 0, 0, 1, 0, `JALR x0, 0(x1)`); 
+                pc += (regs.length*4) + 4 + 12; continue;
+            }
+
+            // 3. Data Stack Pop: (x1, x2) =
+            const popM = line.match(/^\(([\w\s,]+)\)\s*=$/);
+            if (popM) {
+                let regs = popM[1].split(',').map(s => this.parseReg(s.trim()));
+                this.emitI(0x13, 0, 2, 2, -regs.length*8, `ADDI x2, x2, ${-regs.length*8}`);
+                for(let j=0; j<regs.length; j++) {
+                    this.emitI(0x03, 3, regs[j], 2, j*8, `LD x${regs[j]}, ${j*8}(x2)  ; Pop arg`);
+                }
+                pc += (regs.length*4) + 4; continue;
+            }
+
+            // Simple Call (@)
             if (line.endsWith('@')) {
                 let target = line.replace('@', '').trim();
                 this.emitU(0x17, 1, 0, `AUIPC x1, 0`); 
@@ -152,13 +213,12 @@ class Assembler {
                 pc += 16;
                 if (target) {
                     let offset = this.labels[target] - pc;
-                    this.emitJ(0x6F, 0, offset, `JAL x0, ${target} (${offset})`);
-                    pc += 4;
+                    this.emitJ(0x6F, 0, offset, `JAL x0, ${target} (${offset})`); pc += 4;
                 }
                 continue;
             }
 
-            // Return (=)
+            // Simple Return (=)
             if (line === '=') {
                 this.emitI(0x13, 0, 31, 31, -8, `ADDI x31, x31, -8`);
                 this.emitI(0x03, 3, 1, 31, 0, `LD x1, 0(x31)`);
@@ -166,37 +226,39 @@ class Assembler {
                 pc += 12; continue;
             }
 
-            // Halt (_)
-            if (line === '_') {
-                this.emitJ(0x6F, 0, 0, `JAL x0, 0 (Halt)`);
-                pc += 4; continue;
-            }
+            if (line === '_') { this.emitJ(0x6F, 0, 0, `JAL x0, 0 (Halt)`); pc += 4; continue; }
 
-            // Break (.) & Continue (..)
             if (line === '.' || line === '..') {
-                if (blockStack.length === 0) throw new Error(`Break/Continue outside of block: ${line}`);
-                // Find nearest while block
-                let loopBlock = [...blockStack].reverse().find(b => b.type === 'while');
-                if (!loopBlock) throw new Error(`Break/Continue not in a loop: ${line}`);
-                
+                let loopBlock = [...blockStack].reverse().find(b => b.type === 'while' || b.type === 'range');
                 let targetLabel = line === '.' ? loopBlock.end : loopBlock.start;
                 let offset = this.labels[targetLabel] - pc;
                 this.emitJ(0x6F, 0, offset, `JAL x0, ${offset} (${line === '.' ? 'break' : 'continue'})`);
                 pc += 4; continue;
             }
 
+            // Range Loop: & x1 = x2:x3,4
+            const rangeMatch = line.match(/^&\s*(x\d+)\s*=\s*(x\d+)\s*:\s*(x\d+)\s*,\s*(\d+)$/);
+            if (rangeMatch) {
+                bCounter++;
+                let startLabel = `_R_START_${bCounter}`, endLabel = `_R_END_${bCounter}`;
+                let r1 = this.parseReg(rangeMatch[1]), r2 = this.parseReg(rangeMatch[2]), r3 = this.parseReg(rangeMatch[3]);
+                blockStack.push({ type: 'range', indent: indent, start: startLabel, end: endLabel, reg: rangeMatch[1], step: parseInt(rangeMatch[4]) });
+                
+                this.emitI(0x13, 0, r1, r2, 0, `MV x${r1}, x${r2} (Range Init)`); pc += 4;
+                let offset = this.labels[endLabel] - pc;
+                this.emitB(0x63, 5, r1, r3, offset, `BGE x${r1}, x${r3}, END_RANGE`); pc += 4;
+                continue;
+            }
+
             // Blocks (&, ?)
             if (line.startsWith('&') || line.startsWith('?')) {
                 bCounter++;
                 let bType = line.startsWith('&') ? 'while' : 'if';
-                let startLabel = `_B_START_${bCounter}`;
-                let endLabel = `_B_END_${bCounter}`;
+                let startLabel = `_B_START_${bCounter}`, endLabel = `_B_END_${bCounter}`;
                 blockStack.push({ type: bType, indent: indent, start: startLabel, end: endLabel });
                 
                 let cond = line.substring(1).trim();
                 let m = cond.match(/(x\d+)\s*(==|!=|<|>=)\s*(x\d+)/);
-                if (!m) throw new Error(`Invalid condition: ${cond}`);
-                
                 let rs1 = this.parseReg(m[1]), op = m[2], rs2 = this.parseReg(m[3]);
                 let offset = this.labels[endLabel] - pc;
 
@@ -204,64 +266,46 @@ class Assembler {
                 else if (op === '>=') this.emitB(0x63, 4, rs1, rs2, offset, `BLT x${rs1}, x${rs2}, END_BLOCK`);
                 else if (op === '==') this.emitB(0x63, 1, rs1, rs2, offset, `BNE x${rs1}, x${rs2}, END_BLOCK`);
                 else if (op === '!=') this.emitB(0x63, 0, rs1, rs2, offset, `BEQ x${rs1}, x${rs2}, END_BLOCK`);
-                
                 pc += 4; continue;
             }
 
             // Assignments
             if (line.includes('=')) {
                 const parts = line.split('=');
-                const destStr = parts[0].trim();
-                const srcStr = parts[1].trim();
+                const destStr = parts[0].trim(), srcStr = parts[1].trim();
                 
                 if (destStr.startsWith('[') && destStr.endsWith(']')) {
-                    const rs1 = this.parseReg(destStr.slice(1, -1));
-                    const rs2 = this.parseReg(srcStr);
-                    this.emitS(0x23, 3, rs1, rs2, 0, `SD x${rs2}, 0(x${rs1})`);
+                    this.emitS(0x23, 3, this.parseReg(destStr.slice(1, -1)), this.parseReg(srcStr), 0);
                     pc += 4; continue;
                 }
 
                 const rd = this.parseReg(destStr);
-
                 if (srcStr.startsWith('[') && srcStr.endsWith(']')) {
                     const content = srcStr.slice(1, -1);
                     if (content.includes('+')) {
                          const mParts = content.split('+');
-                         const rs1 = this.parseReg(mParts[0].trim());
-                         const off = this.parseValue(mParts[1].trim());
-                         this.emitI(0x03, 3, rd, rs1, off, `LD x${rd}, ${off}(x${rs1})`);
+                         this.emitI(0x03, 3, rd, this.parseReg(mParts[0].trim()), this.parseValue(mParts[1].trim()));
                     } else {
-                         const rs1 = this.parseReg(content);
-                         this.emitI(0x03, 3, rd, rs1, 0, `LD x${rd}, 0(x${rs1})`);
+                         this.emitI(0x03, 3, rd, this.parseReg(content), 0);
                     }
                     pc += 4; continue;
                 }
 
                 if (srcStr.includes('+')) {
                     const opParts = srcStr.split('+').map(s => s.trim());
-                    const part1 = opParts[0], part2 = opParts[1];
-                    if (this.isReg(part1)) {
-                        const rs1 = this.parseReg(part1);
-                        if (this.isReg(part2)) {
-                            this.emitR(0x33, 0, 0, rd, rs1, this.parseReg(part2), `ADD x${rd}, x${rs1}, x${this.parseReg(part2)}`);
-                        } else {
-                            const imm = this.parseValue(part2);
-                            this.emitI(0x13, 0, rd, rs1, imm, `ADDI x${rd}, x${rs1}, ${imm}`);
-                        }
+                    if (this.isReg(opParts[0])) {
+                        if (this.isReg(opParts[1])) this.emitR(0x33, 0, 0, rd, this.parseReg(opParts[0]), this.parseReg(opParts[1]));
+                        else this.emitI(0x13, 0, rd, this.parseReg(opParts[0]), this.parseValue(opParts[1]));
                     } else {
-                        this.emitLoadConst(rd, this.parseValue(part1) + this.parseValue(part2));
+                        this.emitLoadConst(rd, this.parseValue(opParts[0]) + this.parseValue(opParts[1]));
                     }
                 } else {
-                    if (this.isReg(srcStr)) {
-                        this.emitI(0x13, 0, rd, this.parseReg(srcStr), 0, `MV x${rd}, x${this.parseReg(srcStr)}`);
-                    } else {
-                        this.emitLoadConst(rd, this.parseValue(srcStr));
-                    }
+                    if (this.isReg(srcStr)) this.emitI(0x13, 0, rd, this.parseReg(srcStr), 0);
+                    else this.emitLoadConst(rd, this.parseValue(srcStr));
                 }
                 pc += 4; continue;
             }
             
-            // Jumps (Labels)
             if (this.labels[line] !== undefined) {
                 const offset = this.labels[line] - pc;
                 this.emitJ(0x6F, 0, offset, `JAL x0, ${line} (${offset})`);
@@ -273,55 +317,38 @@ class Assembler {
             let b = blockStack.pop();
             if (b.type === 'while') {
                 let offset = this.labels[b.start] - pc;
-                this.emitJ(0x6F, 0, offset, `JAL x0, ${offset} (Loop Back)`);
-                pc += 4;
+                this.emitJ(0x6F, 0, offset, `JAL x0, ${offset} (Loop Back)`); pc += 4;
+            } else if (b.type === 'range') {
+                let reg = this.parseReg(b.reg);
+                this.emitI(0x13, 0, reg, reg, b.step, `ADDI x${reg}, x${reg}, ${b.step}`); pc += 4;
+                let offset = this.labels[b.start] - pc;
+                this.emitJ(0x6F, 0, offset, `JAL x0, ${offset} (Range Next)`); pc += 4;
             }
             this.emitTrace(`; --- End of Block ${b.end} ---`);
         }
     }
 
-    // --- HELPERS ---
     emitTrace(str) { this.asmTrace.push(str); }
-    
     emitLoadConst(rd, val) {
-        if (val >= -2048 && val <= 2047) {
-            this.emitI(0x13, 0, rd, 0, val, `LI x${rd}, ${val}`);
-        } else if ((val & 0xFFF) === 0) {
-            const uimm = (val >>> 12) & 0xFFFFF;
-            this.emitU(0x37, rd, uimm, `LUI x${rd}, 0x${uimm.toString(16)}`);
-        } else {
-            const uimm = (val >>> 12) & 0xFFFFF;
-            this.emitU(0x37, rd, uimm, `LUI x${rd}, 0x${uimm.toString(16)} (trunc)`);
-        }
+        if (val >= -2048 && val <= 2047) { this.emitI(0x13, 0, rd, 0, val, `LI x${rd}, ${val}`); } 
+        else { const uimm = (val >>> 12) & 0xFFFFF; this.emitU(0x37, rd, uimm, `LUI x${rd}, 0x${uimm.toString(16)}`); }
     }
-
-    parseReg(str) {
-        if (RISCV.REGS[str] !== undefined) return RISCV.REGS[str];
-        throw new Error(`Unknown register: ${str}`);
-    }
+    parseReg(str) { if (RISCV.REGS[str] !== undefined) return RISCV.REGS[str]; throw new Error(`Unknown register: ${str}`); }
     isReg(str) { return RISCV.REGS[str] !== undefined; }
-    
     parseValue(str) {
         if (!str) return 0;
-        // Parse kb/mb
         let multiplier = 1;
         if (str.toLowerCase().endsWith('kb')) { multiplier = 1024; str = str.slice(0, -2); }
         else if (str.toLowerCase().endsWith('mb')) { multiplier = 1024 * 1024; str = str.slice(0, -2); }
-        
         if (this.constants[str] !== undefined) return this.constants[str] * multiplier;
-        if (this.labels[str] !== undefined) return this.labels[str]; // Note: labels don't get multiplied
+        if (this.labels[str] !== undefined) return this.labels[str]; 
         if (str.startsWith('0x')) return parseInt(str, 16) * multiplier;
         if (str.startsWith("'")) return str.charCodeAt(1) * multiplier;
         const val = parseInt(str);
         if (!isNaN(val)) return val * multiplier;
         return 0;
     }
-
-    pushWord(word) {
-        this.code.push(word & 0xFF); this.code.push((word >> 8) & 0xFF);
-        this.code.push((word >> 16) & 0xFF); this.code.push((word >> 24) & 0xFF);
-    }
-
+    pushWord(word) { this.code.push(word & 0xFF, (word >> 8) & 0xFF, (word >> 16) & 0xFF, (word >> 24) & 0xFF); }
     emitR(op, f3, f7, rd, rs1, rs2, asm="") { this.pushWord((f7 << 25) | (rs2 << 20) | (rs1 << 15) | (f3 << 12) | (rd << 7) | op); if(asm) this.emitTrace(`  ` + asm); }
     emitI(op, f3, rd, rs1, imm, asm="") { this.pushWord(((imm & 0xFFF) << 20) | (rs1 << 15) | (f3 << 12) | (rd << 7) | op); if(asm) this.emitTrace(`  ` + asm); }
     emitS(op, f3, rs1, rs2, imm, asm="") { this.pushWord((((imm >> 5) & 0x7F) << 25) | (rs2 << 20) | (rs1 << 15) | (f3 << 12) | ((imm & 0x1F) << 7) | op); if(asm) this.emitTrace(`  ` + asm); }
@@ -330,11 +357,10 @@ class Assembler {
     emitJ(op, rd, imm, asm="") { this.pushWord((((imm >> 20) & 1) << 31) | (((imm >> 1) & 0x3FF) << 21) | (((imm >> 11) & 1) << 20) | (((imm >> 12) & 0xFF) << 12) | (rd << 7) | op); if(asm) this.emitTrace(`  ` + asm); }
 }
 
-// --- APP UI ---
 const State = {
     theme: 'light', activeView: 'files', currentFile: 'boot',
     files: {
-        'boot': `; MULTIX System Assembly\n; Test Syntax v0.7\n\n% RAM_SIZE 8kb\n% RAM 0x8000\n\n: RAM\n    x31 = RAM + 0x100  ; Init Shadow Stack\n    \n    print_hello @      ; Call\n    \n    _                  ; Halt\n\nprint_hello:\n    x1 = 0\n    x2 = 3\n    \n    & x1 < x2          ; Loop\n        x5 = 'A'\n        x1 = x1 + 1\n        ..             ; Continue\n        x6 = 'B'       ; Skipped\n        \n    =                  ; Return`
+        'boot': `; MULTIX System Assembly\n; Test Data Stack Args\n\n% RAM 0x8000\n\n: RAM\n    x2 = RAM + 0x200   ; Init Data Stack\n    x31 = RAM + 0x100  ; Init Shadow Stack\n    \n    x10 = 0xAA         ; Argument 1\n    x11 = 0xBB         ; Argument 2\n    \n    process (x10, x11) @  ; Call and push args\n    \n    _                  ; Halt\n\nprocess:\n    (x5, x6) =         ; Pop args into x5, x6\n    x5 = x5 + 1        ; Do work\n    x6 = x6 + 1\n    \n    = (x5)             ; Return and push result`
     }
 };
 
@@ -357,7 +383,7 @@ const App = {
         UI.navTheme.addEventListener('click', App.toggleTheme);
         UI.navBuild.addEventListener('click', App.build);
         UI.btnClear.addEventListener('click', () => UI.console.innerHTML = '');
-        log("MULTIX Dev Environment Ready (v0.7)", "sys");
+        log("MULTIX Dev Environment Ready (v0.8)", "sys");
     },
     openFile: function(name) {
         State.currentFile = name; UI.editor.value = State.files[name]; App.updateLines();
